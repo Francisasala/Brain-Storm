@@ -10,7 +10,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Address, Env};
+    use soroban_sdk::{testutils::{Address as _, Events}, Address, Env, FromVal};
 
     #[test]
     fn emits_standard_two_topic_payload() {

@@ -6,7 +6,7 @@ use soroban_sdk::contracttype;
 
 /// Common errors that can occur across all contracts
 #[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SharedError {
     // ===== Authorization Errors =====
     /// Caller is not authorized to perform this action

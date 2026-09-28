@@ -52,6 +52,12 @@ Entry point for `docs/`. Start here, then follow the links below by topic.
 
 [analytics-guide.md](./analytics-guide.md) · [ANALYTICS.md](./ANALYTICS.md) · [community-moderation.md](./community-moderation.md) · [notifications-guide.md](./notifications-guide.md) · [i18n-guide.md](./i18n-guide.md) · [shared-types.md](./shared-types.md) · [dependency-injection-guide.md](./dependency-injection-guide.md) · [dependency-injection-best-practices.md](./dependency-injection-best-practices.md) · [utilities-guide.md](./utilities-guide.md) · [user-rate-limiting.md](./user-rate-limiting.md) · [ASSET_SUPPORT.md](./ASSET_SUPPORT.md) · [scripts.md](./scripts.md)
 
+## Historical Artifacts
+
+Implementation summaries and PR description drafts from earlier development phases have been moved out of the repository root and consolidated here for posterity:
+
+**[history/](./history/README.md)** — `IMPLEMENTATION_SUMMARY*.md` and `PR_DESC*.md` files (issues #626–#841). These are no longer actively referenced; see merged PRs in GitHub for full context.
+
 ---
 
 New to the repo? Read [development-setup.md](./development-setup.md) first, then [architecture.md](./architecture.md), then [adr/README.md](./adr/README.md) for the reasoning behind the current structure.

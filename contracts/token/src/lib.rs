@@ -1,4 +1,6 @@
 #![no_std]
+extern crate alloc;
+use alloc::format;
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, contracterror,
@@ -55,7 +57,7 @@ pub struct TokenContract;
 #[contractimpl]
 impl TokenContract {
     // ============================================
-    # Initialization
+    // # Initialization
     // ============================================
 
     pub fn initialize(
@@ -87,7 +89,7 @@ impl TokenContract {
             amount: initial_supply,
             last_updated: env.ledger().timestamp(),
         };
-        env.storage().set(&Symbol::new(&env, &format!("balance_{:?}", admin)), &balance);
+        env.storage().persistent().set(&Symbol::new(&env, &format!("balance_{:?}", admin)), &balance);
 
         env.storage().instance().set(&Symbol::new(&env, "admin"), &admin);
 
@@ -95,7 +97,7 @@ impl TokenContract {
     }
 
     // ============================================
-    # Balance Operations with Checked Arithmetic
+    // # Balance Operations with Checked Arithmetic
     // ============================================
 
     /// Transfer tokens from one account to another
@@ -136,8 +138,8 @@ impl TokenContract {
             last_updated: env.ledger().timestamp(),
         };
 
-        env.storage().set(&Symbol::new(&env, &format!("balance_{:?}", from)), &from_balance_obj);
-        env.storage().set(&Symbol::new(&env, &format!("balance_{:?}", to)), &to_balance_obj);
+        env.storage().persistent().set(&Symbol::new(&env, &format!("balance_{:?}", from)), &from_balance_obj);
+        env.storage().persistent().set(&Symbol::new(&env, &format!("balance_{:?}", to)), &to_balance_obj);
 
         // Update total supply (no change on transfer)
 
@@ -191,7 +193,7 @@ impl TokenContract {
             amount: new_to_balance,
             last_updated: env.ledger().timestamp(),
         };
-        env.storage().set(&Symbol::new(&env, &format!("balance_{:?}", to)), &balance_obj);
+        env.storage().persistent().set(&Symbol::new(&env, &format!("balance_{:?}", to)), &balance_obj);
 
         // Store updated state
         env.storage().instance().set(&Symbol::new(&env, "state"), &state);
@@ -246,7 +248,7 @@ impl TokenContract {
             amount: new_from_balance,
             last_updated: env.ledger().timestamp(),
         };
-        env.storage().set(&Symbol::new(&env, &format!("balance_{:?}", from)), &balance_obj);
+        env.storage().persistent().set(&Symbol::new(&env, &format!("balance_{:?}", from)), &balance_obj);
 
         // Store updated state
         env.storage().instance().set(&Symbol::new(&env, "state"), &state);
@@ -277,7 +279,7 @@ impl TokenContract {
             amount,
             spender: spender.clone(),
         };
-        env.storage().set(
+        env.storage().persistent().set(
             &Symbol::new(&env, &format!("allowance_{:?}_{:?}", owner, spender)),
             &allowance,
         );
@@ -307,14 +309,14 @@ impl TokenContract {
 
         // Get and update allowance with checked_sub
         let allowance_key = Symbol::new(&env, &format!("allowance_{:?}_{:?}", from, spender));
-        let mut allowance: Allowance = env.storage().get(&allowance_key)
+        let mut allowance: Allowance = env.storage().persistent().get(&allowance_key)
             .ok_or(TokenError::InsufficientAllowance)?;
 
         let new_allowance = allowance.amount
             .checked_sub(amount)
             .ok_or(TokenError::InsufficientAllowance)?;
         allowance.amount = new_allowance;
-        env.storage().set(&allowance_key, &allowance);
+        env.storage().persistent().set(&allowance_key, &allowance);
 
         // Perform transfer with checked operations
         let from_balance = Self::get_balance_internal(&env, &from)?;
@@ -336,8 +338,8 @@ impl TokenContract {
             last_updated: env.ledger().timestamp(),
         };
 
-        env.storage().set(&Symbol::new(&env, &format!("balance_{:?}", from)), &from_balance_obj);
-        env.storage().set(&Symbol::new(&env, &format!("balance_{:?}", to)), &to_balance_obj);
+        env.storage().persistent().set(&Symbol::new(&env, &format!("balance_{:?}", from)), &from_balance_obj);
+        env.storage().persistent().set(&Symbol::new(&env, &format!("balance_{:?}", to)), &to_balance_obj);
 
         env.events().publish(
             (Symbol::new(&env, "transfer_from"),),
@@ -348,7 +350,7 @@ impl TokenContract {
     }
 
     // ============================================
-    # View Functions
+    // # View Functions
     // ============================================
 
     /// Get balance of an account with error handling
@@ -366,7 +368,7 @@ impl TokenContract {
     /// Get allowance
     pub fn allowance(env: Env, owner: Address, spender: Address) -> Result<i128, TokenError> {
         let key = Symbol::new(&env, &format!("allowance_{:?}_{:?}", owner, spender));
-        let allowance: Allowance = env.storage().get(&key)
+        let allowance: Allowance = env.storage().persistent().get(&key)
             .ok_or(TokenError::ArithmeticError)?;
         Ok(allowance.amount)
     }
@@ -384,13 +386,13 @@ impl TokenContract {
     }
 
     // ============================================
-    # Internal Helper Functions
+    // # Internal Helper Functions
     // ============================================
 
     /// Internal function to get balance with error handling
     fn get_balance_internal(env: &Env, account: &Address) -> Result<i128, TokenError> {
         let key = Symbol::new(env, &format!("balance_{:?}", account));
-        let balance: Balance = env.storage().get(&key)
+        let balance: Balance = env.storage().persistent().get(&key)
             .unwrap_or(Balance {
                 amount: 0,
                 last_updated: env.ledger().timestamp(),
@@ -401,7 +403,7 @@ impl TokenContract {
     /// Internal function to get Balance struct
     fn get_balance_struct_internal(env: &Env, account: &Address) -> Result<Balance, TokenError> {
         let key = Symbol::new(env, &format!("balance_{:?}", account));
-        let balance: Balance = env.storage().get(&key)
+        let balance: Balance = env.storage().persistent().get(&key)
             .unwrap_or(Balance {
                 amount: 0,
                 last_updated: env.ledger().timestamp(),
@@ -411,7 +413,7 @@ impl TokenContract {
 }
 
 // ============================================
-# Tests
+// # Tests
 // ============================================
 
 #[cfg(test)]

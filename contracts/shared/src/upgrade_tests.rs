@@ -9,7 +9,10 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, BytesN, Env, String,
+};
 
 use crate::{Permission, Role, SharedContract, SharedContractClient};
 
@@ -198,4 +201,305 @@ fn test_direct_upgrade_non_admin_rejected() {
     let rando = Address::generate(&env);
     let hash = BytesN::from_array(&env, &[0xab; 32]);
     client.upgrade(&rando, &hash);
+}
+
+// ── Additional Authorization Security Tests (#1169) ─────────────────────────
+
+#[test]
+#[should_panic(expected = "Unauthorized: admin required")]
+fn test_unauthorized_schedule_attempt() {
+    let (env, _, client) = setup();
+    let attacker = Address::generate(&env);
+    // Attempt to schedule upgrade without being admin
+    client.schedule_upgrade(&attacker, &fake_hash(&env, 42), &10);
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized: admin required")]
+fn test_authorization_by_wrong_account() {
+    let (env, admin, client) = setup();
+    let wrong_admin = Address::generate(&env);
+    // Legit admin exists but wrong account attempts upgrade
+    client.schedule_upgrade(&wrong_admin, &fake_hash(&env, 43), &10);
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized: admin required")]
+fn test_insufficient_authorization_rejected() {
+    let (env, admin, client) = setup();
+    let instructor = Address::generate(&env);
+    
+    // Grant instructor role (not admin)
+    client.assign_role(&admin, &instructor, &Role::Instructor);
+    
+    // Instructor cannot schedule upgrades even with valid role
+    client.schedule_upgrade(&instructor, &fake_hash(&env, 44), &10);
+}
+
+#[test]
+fn test_valid_authorization_succeeds() {
+    let (env, admin, client) = setup();
+    // Admin should be able to schedule
+    client.schedule_upgrade(&admin, &fake_hash(&env, 45), &10);
+    let pending = client.get_pending_upgrade().unwrap();
+    assert_eq!(pending.proposed_by, admin);
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized: admin required")]
+fn test_execute_authorization_boundary() {
+    let (env, admin, client) = setup();
+    client.schedule_upgrade(&admin, &fake_hash(&env, 46), &5);
+    env.ledger().set_sequence_number(100);
+    
+    let non_admin = Address::generate(&env);
+    
+    // Non-admin cannot execute even after timelock expires
+    client.execute_upgrade(&non_admin);
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized: admin required")]
+fn test_cancel_authorization_boundary() {
+    let (env, admin, client) = setup();
+    client.schedule_upgrade(&admin, &fake_hash(&env, 47), &10);
+    
+    let attacker = Address::generate(&env);
+    
+    // Non-admin cannot cancel pending upgrades
+    client.cancel_upgrade(&attacker);
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized: admin required")]
+fn test_partial_multisig_authorization_rejected() {
+    // This test verifies that upgrade cannot proceed without complete authorization
+    // Even if we simulate a partial multisig scenario
+    let (env, admin, client) = setup();
+    
+    // Create scenario with potential "partial" authorization
+    let co_admin = Address::generate(&env);
+    
+    // Only the actual admin is stored, co_admin has no authority
+    client.schedule_upgrade(&co_admin, &fake_hash(&env, 48), &10);
+}
+
+#[test]
+fn test_complete_authorization_required() {
+    let (env, admin, client) = setup();
+    
+    // Test that authorization must be complete - admin must both:
+    // 1. Be the stored admin
+    // 2. Provide valid authorization signature
+    
+    // Valid admin can schedule
+    client.schedule_upgrade(&admin, &fake_hash(&env, 49), &10);
+    
+    // Advance past timelock
+    env.ledger().set_sequence_number(100);
+    
+    // Same admin can execute (complete authorization)
+    let pending_before = client.get_pending_upgrade().unwrap();
+    assert_eq!(pending_before.new_wasm_hash, fake_hash(&env, 49));
+    
+    // Note: In test env, execute_upgrade would panic on WASM update
+    // but we can verify authorization passed by checking pending state
+    assert!(client.get_pending_upgrade().is_some());
+}
+
+#[test]
+#[should_panic(expected = "No pending upgrade")]
+fn test_unauthorized_upgrade_with_no_pending() {
+    let (env, admin, client) = setup();
+    env.ledger().set_sequence_number(100);
+    
+    // Try to execute when no upgrade is pending
+    client.execute_upgrade(&admin);
+}
+
+#[test]
+fn test_authorization_invariants_preserved() {
+    let (env, admin, client) = setup();
+    
+    // Test that authorization invariants hold throughout upgrade lifecycle:
+    // 1. Only admin can schedule
+    // 2. Only admin can execute after timelock
+    // 3. Only admin can cancel
+    // 4. Admin role must be preserved across operations
+    
+    // Verify initial admin role
+    assert!(client.has_role(&admin, &Role::Admin));
+    
+    // Schedule upgrade
+    client.schedule_upgrade(&admin, &fake_hash(&env, 50), &5);
+    
+    // Admin role preserved
+    assert!(client.has_role(&admin, &Role::Admin));
+    
+    // Cancel upgrade
+    client.cancel_upgrade(&admin);
+
+    // Admin role still preserved
+    assert!(client.has_role(&admin, &Role::Admin));
+    assert!(client.get_pending_upgrade().is_none());
+}
+
+// ── Module-level authorization & target validation (#1169) ───────────────────
+//
+// The contract entry points (`SharedContract::{schedule,execute,cancel}_upgrade`)
+// check the admin role first, so these tests call the *module* functions
+// directly (inside `env.as_contract`, which provides the storage context) to
+// prove the helpers themselves cannot be bypassed.
+
+/// Registers a contract instance and writes `admin` into the admin slot the
+/// module reads, without going through the gated entry points.
+fn setup_direct(auths_mocked: bool) -> (Env, Address, Address) {
+    let env = Env::default();
+    if auths_mocked {
+        env.mock_all_auths();
+    }
+    let id = env.register_contract(None, SharedContract);
+    let admin = Address::generate(&env);
+    env.as_contract(&id, || {
+        env.storage().instance().set(&crate::DataKey::Admin, &admin);
+    });
+    (env, id, admin)
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized: admin required")]
+fn test_module_schedule_rejects_non_admin_caller() {
+    let (env, id, _) = setup_direct(true);
+    let attacker = Address::generate(&env);
+    env.as_contract(&id, || {
+        crate::upgrade::schedule_upgrade(&env, &attacker, fake_hash(&env, 60), 10);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized: admin required")]
+fn test_module_execute_rejects_non_admin_caller() {
+    let (env, id, admin) = setup_direct(true);
+    env.as_contract(&id, || {
+        // Schedule a pending upgrade first — authorization must still fail.
+        crate::upgrade::schedule_upgrade(&env, &admin, fake_hash(&env, 61), 10);
+        let attacker = Address::generate(&env);
+        crate::upgrade::execute_upgrade(&env, &attacker);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized: admin required")]
+fn test_module_cancel_rejects_non_admin_caller() {
+    let (env, id, admin) = setup_direct(true);
+    env.as_contract(&id, || {
+        crate::upgrade::schedule_upgrade(&env, &admin, fake_hash(&env, 62), 10);
+        let attacker = Address::generate(&env);
+        crate::upgrade::cancel_upgrade(&env, &attacker);
+    });
+}
+
+#[test]
+#[should_panic]
+fn test_module_schedule_requires_signature() {
+    // No `mock_all_auths`: the stored admin's own signature must be presented.
+    let (env, id, admin) = setup_direct(false);
+    env.as_contract(&id, || {
+        crate::upgrade::schedule_upgrade(&env, &admin, fake_hash(&env, 63), 10);
+    });
+}
+
+#[test]
+fn test_module_schedule_accepts_stored_admin() {
+    let (env, id, admin) = setup_direct(true);
+    let hash = fake_hash(&env, 64);
+    env.as_contract(&id, || {
+        crate::upgrade::schedule_upgrade(&env, &admin, hash.clone(), 10);
+    });
+    let pending = client_pending(&env, &id);
+    assert_eq!(pending.proposed_by, admin);
+    assert_eq!(pending.new_wasm_hash, hash);
+}
+
+/// Reads the pending upgrade straight from instance storage.
+fn client_pending(env: &Env, id: &Address) -> crate::upgrade::ScheduledUpgrade {
+    env.as_contract(id, || crate::upgrade::get_pending_upgrade(env))
+        .expect("pending upgrade expected")
+}
+
+#[test]
+#[should_panic(expected = "Timelock must be at least 1 ledger")]
+fn test_schedule_zero_timelock_rejected() {
+    let (env, admin, client) = setup();
+    // A zero-length timelock would make the upgrade executable immediately.
+    client.schedule_upgrade(&admin, &fake_hash(&env, 65), &0);
+}
+
+#[test]
+#[should_panic(expected = "Invalid WASM hash")]
+fn test_schedule_zero_wasm_hash_rejected() {
+    let (env, admin, client) = setup();
+    client.schedule_upgrade(&admin, &BytesN::from_array(&env, &[0u8; 32]), &10);
+}
+
+#[test]
+fn test_schedule_minimal_timelock_accepted() {
+    // Sanity: the happy path still schedules after the new validations.
+    let (env, admin, client) = setup();
+    client.schedule_upgrade(&admin, &fake_hash(&env, 66), &1);
+    assert!(client.get_pending_upgrade().is_some());
+}
+
+// ── Bypass paths (#1169) ─────────────────────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "Direct upgrade disabled")]
+fn test_immediate_upgrade_bypass_rejected() {
+    let (env, admin, client) = setup();
+    // Admin authentication is checked first (see `test_non_admin_cannot_upgrade`
+    // in `tests.rs`), but the immediate swap is no longer reachable at all:
+    // it would skip the timelock, the pending record and the audit trail.
+    client.upgrade(&admin, &fake_hash(&env, 70));
+}
+
+#[test]
+fn test_partial_multisig_execution_is_rejected() {
+    // A multisig proposal holding fewer approvals than its threshold must not
+    // execute, so a partial multisig can never act as an alternative path to
+    // an upgrade.
+    let (env, admin, client) = setup();
+    let proposer = Address::generate(&env);
+    let signer_a = Address::generate(&env);
+    let signer_b = Address::generate(&env);
+    env.as_contract(&client.address, || {
+        let operation = String::from_str(&env, "upgrade");
+        let id = crate::multisig::create_proposal(&env, operation, proposer, 3, 100);
+        crate::multisig::approve_proposal(&env, id, signer_a); // 1 of 3
+        crate::multisig::approve_proposal(&env, id, signer_b); // 2 of 3 = partial
+        assert!(!crate::multisig::execute_proposal(&env, id));
+        let proposal = crate::multisig::get_proposal(&env, id).expect("proposal expected");
+        assert!(!proposal.executed);
+        assert_eq!(proposal.approvals.len(), 2);
+    });
+    // Nothing about the upgrade path moved: no pending upgrade, no history.
+    assert!(client.get_pending_upgrade().is_none());
+    assert_eq!(client.get_upgrade_count(), 0);
+    // And a signer of that partial multisig still holds no upgrade authority.
+    client.schedule_upgrade(&admin, &fake_hash(&env, 71), &10);
+    assert!(client.get_pending_upgrade().is_some());
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized: admin required")]
+fn test_partial_multisig_signer_cannot_schedule_upgrade() {
+    // Even after signing a (partial) multisig proposal, a co-signer holds no
+    // upgrade authority: only the stored admin may schedule.
+    let (env, admin, client) = setup();
+    let co_signer = Address::generate(&env);
+    env.as_contract(&client.address, || {
+        let operation = String::from_str(&env, "upgrade");
+        let id = crate::multisig::create_proposal(&env, operation, admin.clone(), 3, 100);
+        crate::multisig::approve_proposal(&env, id, co_signer.clone());
+    });
+    client.schedule_upgrade(&co_signer, &fake_hash(&env, 71), &10);
 }

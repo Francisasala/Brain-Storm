@@ -4,8 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-soroban-sdk = { version = "21.5.0", features = ["testutils"] }
+soroban-sdk = { version = "21.5.0", features = ["alloc"] }
 brain-storm-shared = { path = "../shared", default-features = false }
+
+# `testutils` must stay out of the production dependency graph: the SDK's
+# macro emits `compile_error!("'testutils' feature is not supported on
+# 'wasm' target")`, so listing it under [dependencies] made this contract
+# impossible to build as WASM (issue #1171 needs that artifact to measure).
+[dev-dependencies]
+soroban-sdk = { version = "21.5.0", features = ["testutils"] }
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -15,3 +22,6 @@ opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
+
+[lints]
+workspace = true

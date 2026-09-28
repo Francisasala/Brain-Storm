@@ -1,7 +1,12 @@
 # Brain-Storm Clippy configuration
 # Run: cargo clippy --workspace -- -D warnings
+#
+# Pedantic lint selection (#1199):
+#   The selected clippy::pedantic lints are declared in [workspace.lints.clippy]
+#   in the root Cargo.toml and inherited by every contract crate via
+#   `[lints] workspace = true`. See Cargo.toml for the full annotated list and
+#   the rationale for lints that were intentionally skipped.
 
-# Disallow integer arithmetic that doesn't use checked/saturating/wrapping variants
-# (enforced manually; use checked_add, checked_sub, etc.)
-
+# Minimum Supported Rust Version — keeps lint suggestions compatible with the
+# toolchain declared in rust-toolchain.toml.
 msrv = "1.70.0"

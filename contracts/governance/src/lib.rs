@@ -85,6 +85,26 @@ const UPGRADE_APPROVED: Symbol = symbol_short!("upg_appr");
 const UPGRADE_EXECUTED: Symbol = symbol_short!("upg_exec");
 
 // =============================================================================
+// Upgrade target validation (issue #1169)
+// =============================================================================
+
+/// Strkey of the all-zero *contract* address (strkey version 2, `C…` prefix).
+const ZERO_CONTRACT_ADDRESS: &str = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+
+/// Strkey of the all-zero *account* address (strkey version 6, `G…` prefix).
+const ZERO_ACCOUNT_ADDRESS: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+
+/// Returns true when `addr` is one of the all-zero (unusable) addresses.
+///
+/// `soroban_sdk::Address` exposes no `is_zero()` on SDK 21, so the check
+/// compares the canonical strkey produced by `Address::to_string()`.
+fn is_zero_address(addr: &Address) -> bool {
+    let strkey = addr.to_string();
+    strkey == String::from_str(addr.env(), ZERO_CONTRACT_ADDRESS)
+        || strkey == String::from_str(addr.env(), ZERO_ACCOUNT_ADDRESS)
+}
+
+// =============================================================================
 // Contract
 // =============================================================================
 
@@ -470,6 +490,14 @@ impl GovernanceContract {
         timelock_ledger: u32,
     ) -> u64 {
         proposer.require_auth();
+
+        // Security (#1169): reject the all-zero target so an upgrade proposal
+        // can never name an address that does not resolve to a real contract.
+        assert!(
+            !is_zero_address(&contract_address),
+            "Contract address must not be zero"
+        );
+
         assert!(voting_end_ledger > env.ledger().sequence(), "Voting end must be in future");
         assert!(timelock_ledger > voting_end_ledger, "Timelock must be after voting");
 
@@ -535,7 +563,13 @@ impl GovernanceContract {
         env.events().publish((VOTE_CAST, symbol_short!("upg")), (upgrade_id, support));
     }
 
-    pub fn approve_upgrade(env: Env, upgrade_id: u64) {
+    /// Approve a passed upgrade proposal. **Stored admin only** (issue #1169):
+    /// `docs/contract-interfaces.md` documents this as the admin approval gate,
+    /// but the function previously took no caller at all, so anyone could flip
+    /// `approved` on a proposal that had merely finished voting.
+    pub fn approve_upgrade(env: Env, admin: Address, upgrade_id: u64) {
+        access::require_admin(&env, &admin, &DataKey::Admin);
+
         let mut upgrade: UpgradeProposalRecord = env
             .storage()
             .persistent()
@@ -622,7 +656,7 @@ mod tests {
         let delegate = Address::generate(&env);
         client.delegate(&voter, &delegate);
 
-        env.budget().reset();
+        env.budget().reset_default();
         let power = client.get_voting_power(&voter);
         let after = env.budget().cpu_instruction_cost();
 
@@ -928,6 +962,126 @@ mod tests {
         let end = env.ledger().sequence() + 100;
         // timelock == end — not strictly after
         client.propose_upgrade(&proposer, &contract_addr, &wasm_hash, &end, &(end - 1));
+    }
+
+    #[test]
+    #[should_panic(expected = "Contract address must not be zero")]
+    fn test_propose_upgrade_zero_contract_target_panics() {
+        let (env, client, _, _) = setup();
+        let proposer = Address::generate(&env);
+        let zero = Address::from_string(&String::from_str(&env, ZERO_CONTRACT_ADDRESS));
+        let wasm_hash = symbol_short!("abc123");
+        let end = env.ledger().sequence() + 10;
+        let timelock = end + 10;
+        client.propose_upgrade(&proposer, &zero, &wasm_hash, &end, &timelock);
+    }
+
+    #[test]
+    #[should_panic(expected = "Contract address must not be zero")]
+    fn test_propose_upgrade_zero_account_target_panics() {
+        let (env, client, _, _) = setup();
+        let proposer = Address::generate(&env);
+        let zero = Address::from_string(&String::from_str(&env, ZERO_ACCOUNT_ADDRESS));
+        let wasm_hash = symbol_short!("abc123");
+        let end = env.ledger().sequence() + 10;
+        let timelock = end + 10;
+        client.propose_upgrade(&proposer, &zero, &wasm_hash, &end, &timelock);
+    }
+
+    // ── Upgrade approval / execution authorization (#1169) ────────────────────
+    //
+    // `approve_upgrade` is documented as the admin approval gate
+    // (docs/contract-interfaces.md); `execute_upgrade` is documented as
+    // permissionless but only after the approved proposal's timelock.
+
+    /// Minimal token contract so `vote_upgrade`'s balance lookup resolves.
+    #[contract]
+    struct MockToken;
+
+    #[contractimpl]
+    impl MockToken {
+        pub fn balance(_env: Env, _addr: Address) -> i128 {
+            1_000
+        }
+    }
+
+    /// Governance wired to a token that reports a non-zero balance for everyone.
+    fn setup_with_token() -> (Env, GovernanceContractClient<'static>, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register_contract(None, GovernanceContract);
+        let client = GovernanceContractClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        let token = env.register_contract(None, MockToken);
+        client.initialize(&admin, &token);
+        (env, client, admin)
+    }
+
+    /// Proposes an upgrade, votes it through and closes the voting window.
+    /// Returns `(upgrade_id, voting_end_ledger)`.
+    fn passed_upgrade(env: &Env, client: &GovernanceContractClient, admin: &Address) -> (u64, u32) {
+        let end = env.ledger().sequence() + 10;
+        let target = Address::generate(env);
+        let wasm_hash = symbol_short!("abc123");
+        let id = client.propose_upgrade(admin, &target, &wasm_hash, &end, &(end + 10));
+        let voter = Address::generate(env);
+        client.vote_upgrade(&voter, &id, &true);
+        set_ledger(env, end);
+        (id, end)
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized: admin required")]
+    fn test_approve_upgrade_rejects_non_admin() {
+        let (env, client, admin) = setup_with_token();
+        // The proposal has finished voting and passed — approval is still the
+        // stored admin's call alone.
+        let (id, _) = passed_upgrade(&env, &client, &admin);
+        let rando = Address::generate(&env);
+        client.approve_upgrade(&rando, &id);
+    }
+
+    #[test]
+    fn test_approve_upgrade_marks_passed_proposal_approved() {
+        let (env, client, admin) = setup_with_token();
+        let (id, _) = passed_upgrade(&env, &client, &admin);
+        client.approve_upgrade(&admin, &id);
+        let record = client.get_upgrade_proposal(&id).unwrap();
+        assert!(record.approved);
+        assert!(!record.executed);
+    }
+
+    #[test]
+    #[should_panic(expected = "Timelock not expired")]
+    fn test_execute_upgrade_rejected_before_timelock() {
+        let (env, client, admin) = setup_with_token();
+        let (id, end) = passed_upgrade(&env, &client, &admin);
+        client.approve_upgrade(&admin, &id);
+        // One ledger short of `timelock_ledger == end + 10`.
+        set_ledger(&env, end + 9);
+        client.execute_upgrade(&id);
+    }
+
+    #[test]
+    fn test_execute_upgrade_succeeds_after_timelock() {
+        let (env, client, admin) = setup_with_token();
+        let (id, end) = passed_upgrade(&env, &client, &admin);
+        client.approve_upgrade(&admin, &id);
+        set_ledger(&env, end + 10);
+        client.execute_upgrade(&id);
+        let record = client.get_upgrade_proposal(&id).unwrap();
+        assert!(record.executed);
+    }
+
+    #[test]
+    #[should_panic(expected = "Already executed")]
+    fn test_execute_upgrade_cannot_run_twice() {
+        let (env, client, admin) = setup_with_token();
+        let (id, end) = passed_upgrade(&env, &client, &admin);
+        client.approve_upgrade(&admin, &id);
+        set_ledger(&env, end + 10);
+        client.execute_upgrade(&id);
+        client.execute_upgrade(&id);
     }
 
     #[test]

@@ -17,3 +17,6 @@ crate-type = ["cdylib", "rlib"]
 [profile.release]
 opt-level = "z"
 lto = true
+
+[lints]
+workspace = true

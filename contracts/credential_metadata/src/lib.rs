@@ -1,4 +1,8 @@
 #![no_std]
+// Test builds need std (panic::catch_unwind); runtime stays no_std.
+#[cfg(test)]
+extern crate std;
+
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, String, Symbol,
 };
@@ -120,6 +124,8 @@ impl CredentialMetadataContract {
     ) -> u32 {
         admin.require_auth();
         validation::validate_admin(&env, &admin);
+        // Shared metadata rules (#1170) — same helpers the NFT contract uses.
+        validation::validate_metadata_fields(&course_name, &grade, &ipfs_hash);
 
         // Store credential metadata first
         let metadata = MetadataRecord {
@@ -173,6 +179,8 @@ impl CredentialMetadataContract {
     ) {
         admin.require_auth();
         validation::validate_admin(&env, &admin);
+        // Shared metadata rules (#1170) — reject invalid fields before storing.
+        validation::validate_metadata_fields(&course_name, &grade, &ipfs_hash);
 
         let metadata = MetadataRecord {
             credential_id,
@@ -202,6 +210,9 @@ impl CredentialMetadataContract {
         validation::validate_admin(&env, &admin);
 
         let mut metadata: MetadataRecord = validation::get_metadata_or_panic(&env, credential_id);
+        // Shared metadata rules (#1170) — the new values must be valid too, and
+        // the stored content pointer an update leaves untouched must still hold.
+        validation::validate_metadata_fields(&course_name, &grade, &metadata.ipfs_hash);
 
         let history_count: u32 = env
             .storage()

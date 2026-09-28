@@ -67,6 +67,7 @@ name = "badges"
 version = "0.1.0"
 dependencies = [
  "brain-storm-shared",
+ "scholarship_fund",
  "soroban-sdk",
 ]
 
@@ -288,6 +289,7 @@ dependencies = [
 name = "credential_metadata"
 version = "0.1.0"
 dependencies = [
+ "brain-storm-shared",
  "soroban-sdk",
 ]
 
@@ -1205,6 +1207,7 @@ name = "royalty_distribution"
 version = "0.1.0"
 dependencies = [
  "brain-storm-shared",
+ "proptest",
  "soroban-sdk",
 ]
 

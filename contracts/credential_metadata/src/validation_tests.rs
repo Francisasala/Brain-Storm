@@ -6,8 +6,8 @@ use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 use crate::{CredentialMetadataContract, CredentialMetadataContractClient, DataKey, MetadataRecord};
 use crate::validation::{
-    metadata_exists, get_metadata_checked, get_metadata_or_panic, is_renewable,
-    validate_admin, validate_future_timestamp,
+    get_metadata_checked, get_metadata_or_panic, is_metadata_valid, is_renewable, metadata_exists,
+    validate_admin, validate_future_timestamp, validate_metadata_fields,
 };
 
 fn setup() -> (Env, CredentialMetadataContractClient<'static>, Address) {
@@ -155,4 +155,174 @@ fn test_is_expired_returns_false_for_far_future_expiry() {
     let (env, client, admin) = setup();
     store_sample(&env, &client, &admin, 10, 9_999_999_999);
     assert!(!client.is_expired(&10));
+}
+
+// ── Metadata field validation (Issue #1170) ─────────────────────────────────
+//
+// Field rules come from `brain_storm_shared::validation`; this contract only
+// decides *when* to apply them (every write path) and exposes a non-panicking
+// `is_metadata_valid` for callers that must report instead of reject.
+
+#[test]
+fn test_is_metadata_valid_false_when_missing() {
+    let (env, client, _) = setup();
+    let valid = env.as_contract(&client.address, || is_metadata_valid(&env, 1234));
+    assert!(!valid);
+}
+
+#[test]
+fn test_is_metadata_valid_true_for_stored_record() {
+    let (env, client, admin) = setup();
+    store_sample(&env, &client, &admin, 55, 9_999_999);
+    let valid = env.as_contract(&client.address, || is_metadata_valid(&env, 55));
+    assert!(valid);
+}
+
+/// A record exactly as the write paths store it.
+fn valid_record(env: &Env, credential_id: u64) -> MetadataRecord {
+    MetadataRecord {
+        credential_id,
+        course_name: String::from_str(env, "Rust Fundamentals"),
+        completion_date: 1_000,
+        expiry_timestamp: 9_999_999,
+        grade: String::from_str(env, "A"),
+        ipfs_hash: String::from_str(env, "QmHash"),
+    }
+}
+
+/// Writes a record straight to storage, bypassing the write-path gate, so the
+/// reader (`is_metadata_valid`) is what gets tested.
+fn write_record(env: &Env, client: &CredentialMetadataContractClient, record: MetadataRecord) {
+    let id = record.credential_id;
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Metadata(id), &record);
+    });
+}
+
+#[test]
+fn test_is_metadata_valid_false_for_empty_ipfs_hash() {
+    let (env, client, _) = setup();
+    let mut record = valid_record(&env, 70);
+    record.ipfs_hash = String::from_str(&env, "");
+    write_record(&env, &client, record);
+    let valid = env.as_contract(&client.address, || is_metadata_valid(&env, 70));
+    assert!(!valid);
+}
+
+#[test]
+fn test_is_metadata_valid_false_for_invalid_course_name() {
+    let (env, client, _) = setup();
+    let mut record = valid_record(&env, 71);
+    record.course_name = String::from_str(&env, "x");
+    write_record(&env, &client, record);
+    let valid = env.as_contract(&client.address, || is_metadata_valid(&env, 71));
+    assert!(!valid);
+}
+
+#[test]
+fn test_is_metadata_valid_false_when_expiry_before_completion() {
+    let (env, client, _) = setup();
+    let mut record = valid_record(&env, 72);
+    record.expiry_timestamp = 999; // completion_date is 1_000
+    write_record(&env, &client, record);
+    let valid = env.as_contract(&client.address, || is_metadata_valid(&env, 72));
+    assert!(!valid);
+}
+
+#[test]
+#[should_panic(expected = "Course name must be between 3 and 100 characters")]
+fn test_store_metadata_rejects_empty_course_name() {
+    let (env, client, admin) = setup();
+    client.store_metadata(
+        &admin,
+        &1,
+        &String::from_str(&env, ""),
+        &1_000,
+        &9_999_999,
+        &String::from_str(&env, "A"),
+        &String::from_str(&env, "QmHash"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Course name must be between 3 and 100 characters")]
+fn test_store_metadata_rejects_overlong_course_name() {
+    let (env, client, admin) = setup();
+    let overlong = "X".repeat(101);
+    client.store_metadata(
+        &admin,
+        &1,
+        &String::from_str(&env, &overlong),
+        &1_000,
+        &9_999_999,
+        &String::from_str(&env, "A"),
+        &String::from_str(&env, "QmHash"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Grade must be 20 characters or less")]
+fn test_store_metadata_rejects_empty_grade() {
+    let (env, client, admin) = setup();
+    client.store_metadata(
+        &admin,
+        &1,
+        &String::from_str(&env, "Rust Fundamentals"),
+        &1_000,
+        &9_999_999,
+        &String::from_str(&env, ""),
+        &String::from_str(&env, "QmHash"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Course name must be between 3 and 100 characters")]
+fn test_update_metadata_rejects_invalid_course_name() {
+    let (env, client, admin) = setup();
+    store_sample(&env, &client, &admin, 66, 9_999_999);
+    client.update_metadata(
+        &admin,
+        &66,
+        &String::from_str(&env, "x"),
+        &String::from_str(&env, "B"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "String must not be empty")]
+fn test_store_metadata_rejects_empty_ipfs_hash() {
+    let (env, client, admin) = setup();
+    client.store_metadata(
+        &admin,
+        &1,
+        &String::from_str(&env, "Rust Fundamentals"),
+        &1_000,
+        &9_999_999,
+        &String::from_str(&env, "A"),
+        &String::from_str(&env, ""),
+    );
+}
+
+#[test]
+fn test_validate_metadata_fields_accepts_valid_values() {
+    let env = Env::default();
+    // No panic = accepted
+    validate_metadata_fields(
+        &String::from_str(&env, "Rust Fundamentals"),
+        &String::from_str(&env, "A"),
+        &String::from_str(&env, "QmHash"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "String must not be empty")]
+fn test_validate_metadata_fields_rejects_missing_ipfs_hash() {
+    let env = Env::default();
+    validate_metadata_fields(
+        &String::from_str(&env, "Rust Fundamentals"),
+        &String::from_str(&env, "A"),
+        &String::from_str(&env, ""),
+    );
 }

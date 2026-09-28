@@ -28,9 +28,11 @@ members = [
 ]
 
 [workspace.dependencies]
-# Soroban SDK - latest stable
-soroban-sdk = "20.0.0"
-soroban-cli = "20.0.0"
+# Soroban SDK - latest stable (resolves to 21.7.7 in Cargo.lock)
+# Individual contracts may specify their own minimum versions; Cargo resolves
+# to the highest compatible version across the workspace.
+soroban-sdk = "21.7"
+soroban-cli = "21.7"
 
 # Common dependencies
 serde = { version = "1.0", features = ["derive"] }
@@ -62,3 +64,51 @@ overflow-checks = true
 [workspace.metadata.fmt]
 check_command = "cargo fmt --all -- --check"
 format_command = "cargo fmt --all"
+
+# ── Workspace-level lint configuration (#1199) ────────────────────────────────
+# Selected clippy::pedantic lints enabled across all 19 contracts.
+# See clippy.toml for the full rationale on lints that were SKIPPED.
+#
+# Each crate that inherits this workspace lint table via `[lints] workspace = true`
+# will have these lints active. Individual allow-attributes with a comment
+# justification are used at the call site when a lint fires on intentional code.
+[workspace.lints.clippy]
+# Correctness / subtle bugs
+bool_to_int_with_if          = "warn"   # prefer `usize::from(cond)` over `if cond { 1 } else { 0 }`
+cloned_instead_of_copied     = "warn"   # prefer `.copied()` for Copy types
+default_trait_access         = "warn"   # prefer `Default::default()` over `SomeType::default()`
+explicit_iter_loop           = "warn"   # prefer `for x in iter` over `for x in iter.into_iter()`
+filter_map_next              = "warn"   # prefer `.find_map()` over `.filter_map().next()`
+flat_map_option              = "warn"   # prefer `.filter_map()` over `.flat_map(|x| Some(x)...)`
+if_not_else                  = "warn"   # prefer positive conditions first
+inconsistent_struct_constructor = "warn" # field order must match struct definition
+inefficient_to_string        = "warn"   # avoid redundant `.to_string()` on already-owned strings
+items_after_statements       = "warn"   # keep item definitions at the top of blocks
+manual_assert                = "warn"   # prefer `assert!()` over `if cond { panic!(...) }`
+manual_let_else              = "warn"   # prefer `let … else` over `match` with early return
+manual_ok_or                 = "warn"   # prefer `.ok_or()` over `match … { Some(v) => Ok(v), None => Err(e) }`
+map_unwrap_or                = "warn"   # prefer `.unwrap_or_else()` over `.map().unwrap_or()`
+match_bool                   = "warn"   # prefer `if/else` over `match` on booleans
+match_same_arms              = "warn"   # merge identical match arms
+needless_continue            = "warn"   # remove redundant `continue` at end of loop
+needless_pass_by_value       = "warn"   # prefer pass-by-reference when ownership is not needed
+range_minus_one              = "warn"   # prefer `..end` over `..=end - 1`
+range_plus_one               = "warn"   # prefer `..=end` over `..end + 1`
+redundant_closure_for_method_calls = "warn"  # prefer method references over wrapping closures
+return_self_not_must_use     = "warn"   # builder-pattern methods should be `#[must_use]`
+same_functions_in_if_blocks  = "warn"   # identical function calls in if/else branches
+semicolon_if_nothing_returned = "warn"  # add trailing `;` to expression statements
+unnested_or_patterns         = "warn"   # prefer `A | B` over nested `match`
+unused_self                  = "warn"   # methods that don't use `self` should be free functions
+used_underscore_binding      = "warn"   # using a `_`-prefixed variable suggests it's intentionally unused
+
+# Lints kept at allow (would require large churn or are inapplicable):
+#   missing_errors_doc, missing_panics_doc — see clippy.toml rationale
+#   module_name_repetitions               — ABI-breaking rename for TokenContract, etc.
+#   must_use_candidate                    — too noisy on entry-point fns
+#   wildcard_imports                      — soroban_sdk glob imports are idiomatic
+#   too_many_lines                        — contract fns are intentionally verbose
+#   struct_excessive_bools                — on-chain state structs need bool fields
+#   cast_possible_truncation              — required for SDK TTL/timestamp APIs
+#   cast_sign_loss                        — same as above
+#   cast_precision_loss                   — no float arithmetic in contracts

@@ -1,7 +1,11 @@
 #[cfg(test)]
 mod tests {
     use crate::{RegistryContract, RegistryContractClient, VerificationLevel};
-    use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env, Vec};
+    use soroban_sdk::{
+        symbol_short,
+        testutils::{Address as _, Ledger},
+        vec, Address, Env, Vec,
+    };
 
     fn setup() -> (Env, RegistryContractClient<'static>, Address) {
         let env = Env::default();
@@ -122,7 +126,7 @@ mod tests {
         // Set expiry to ledger time 1 (already past since env starts at 0)
         client.add_certified_skill(&admin, &user, &skill, &1);
         // Advance ledger time beyond expiry
-        env.ledger().set_timestamp(100);
+        env.ledger().with_mut(|l| l.timestamp = 100);
         assert!(!client.has_certified_skill(&user, &skill));
     }
 

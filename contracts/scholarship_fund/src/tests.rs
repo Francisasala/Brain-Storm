@@ -132,4 +132,72 @@ mod tests {
         let (_, client, _) = setup();
         assert!(client.get_application(&999).is_none());
     }
+    // ── Edge Case Tests ─────────────────────────────────────────────
+    #[test]
+    fn test_partial_disbursement_succeeds() {
+        let (env, client, admin) = setup();
+        let donor = Address::generate(&env);
+        client.donate(&donor, &5000);
+
+        let student = Address::generate(&env);
+        let app_id = client.apply_for_scholarship(&student, &2000);
+        client.approve_application(&admin, &app_id);
+        client.distribute_scholarship(&admin, &app_id);
+
+        assert_eq!(client.get_fund_balance(), 3000);
+        let app = client.get_application(&app_id).unwrap();
+        assert_eq!(app.status, ApplicationStatus::Distributed);
+    }
+
+    #[test]
+    fn test_full_disbursement() {
+        let (env, client, admin) = setup();
+        let donor = Address::generate(&env);
+        client.donate(&donor, &5000);
+
+        let student = Address::generate(&env);
+        let app_id = client.apply_for_scholarship(&student, &5000);
+        client.approve_application(&admin, &app_id);
+        client.distribute_scholarship(&admin, &app_id);
+
+        assert_eq!(client.get_fund_balance(), 0);
+        let app = client.get_application(&app_id).unwrap();
+        assert_eq!(app.status, ApplicationStatus::Distributed);
+    }
+
+    #[test]
+    #[should_panic(expected = "Insufficient fund balance")]
+    fn test_over_withdrawal_panics() {
+        let (env, client, admin) = setup();
+        let donor = Address::generate(&env);
+        client.donate(&donor, &1000);
+
+        let student = Address::generate(&env);
+        let app_id = client.apply_for_scholarship(&student, &5000);
+        client.approve_application(&admin, &app_id);
+        client.distribute_scholarship(&admin, &app_id);
+    }
+
+    #[test]
+    fn test_fund_depletion_boundary() {
+        let (env, client, admin) = setup();
+        let donor = Address::generate(&env);
+        client.donate(&donor, &5000);
+
+        let student1 = Address::generate(&env);
+        let app_id1 = client.apply_for_scholarship(&student1, &5000);
+        client.approve_application(&admin, &app_id1);
+        client.distribute_scholarship(&admin, &app_id1);
+
+        assert_eq!(client.get_fund_balance(), 0);
+
+        // Second disbursement should fail with insufficient fund
+        let student2 = Address::generate(&env);
+        let app_id2 = client.apply_for_scholarship(&student2, &100);
+        client.approve_application(&admin, &app_id2);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.distribute_scholarship(&admin, &app_id2);
+        }));
+        assert!(result.is_err(), "Expected panic on disbursement beyond depleted fund");
+    }
 }

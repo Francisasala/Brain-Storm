@@ -5,6 +5,8 @@
 
 use proptest::prelude::*;
 
+use std::vec::Vec;
+
 // ── Strategies ────────────────────────────────────────────────────────────────
 
 fn arb_level_ord() -> impl Strategy<Value = u32> {

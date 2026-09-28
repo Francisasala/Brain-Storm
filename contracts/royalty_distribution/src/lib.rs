@@ -34,7 +34,7 @@ pub struct RoyaltyPayment {
 }
 
 const EVT_DOMAIN: Symbol = symbol_short!("royalty");
-const DISTRIBUTE: Symbol = symbol_short!("distributed");
+const DISTRIBUTE: Symbol = symbol_short!("distribtd");
 const WITHDRAW: Symbol = symbol_short!("withdrawn");
 const SPLIT_SET: Symbol = symbol_short!("split_set");
 

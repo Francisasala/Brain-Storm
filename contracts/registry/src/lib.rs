@@ -10,12 +10,16 @@
 //! #663: Pausable/emergency-stop mechanism.
 //! #662: Batch operations & gas optimisation.
 
+// Test builds need std (proptest property helpers); runtime stays no_std.
+#[cfg(test)]
+extern crate std;
+
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec,
 };
 
 use brain_storm_shared::access;
-use brain_storm_shared::pagination::paginate;
+use brain_storm_shared::pagination::{paginate, MAX_PAGE_SIZE};
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
 
@@ -44,7 +48,7 @@ fn level_ord(level: &VerificationLevel) -> u32 {
 
 /// Numeric verification tier (0 = unverified … 3 = fully verified).
 #[contracttype]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum VerificationLevel {
     Unverified,
     Basic,
@@ -330,6 +334,9 @@ impl RegistryContract {
     }
 
     /// Return a page of registered users.
+    ///
+    /// `limit` is capped at [`MAX_PAGE_SIZE`] by the shared pagination helper,
+    /// so over-limit requests are truncated predictably (Issue #1168).
     pub fn list_users(env: Env, offset: u32, limit: u32) -> Vec<Address> {
         let list: Vec<Address> = env
             .storage()
@@ -340,6 +347,9 @@ impl RegistryContract {
     }
 
     /// Return users filtered by minimum verification level.
+    ///
+    /// `limit` is capped at [`MAX_PAGE_SIZE`] by the shared pagination helper,
+    /// so over-limit requests are truncated predictably (Issue #1168).
     pub fn list_users_by_level(
         env: Env,
         min_level: VerificationLevel,
@@ -375,6 +385,15 @@ impl RegistryContract {
             .get(&DataKey::UserList)
             .unwrap_or_else(|| Vec::new(&env));
         list.len()
+    }
+
+    /// Largest page `list_users` / `list_users_by_level` will ever return
+    /// (Issue #1168).
+    ///
+    /// Surfaced so clients can validate a `limit` before calling instead of
+    /// discovering the cap from a truncated page.
+    pub fn get_max_page_size() -> u32 {
+        MAX_PAGE_SIZE
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────

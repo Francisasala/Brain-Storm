@@ -188,6 +188,68 @@ mod tests {
         assert_eq!(client.get_owner_nfts(&nobody).len(), 0);
     }
 
+    // ── Pagination bounds (#1168) ─────────────────────────────────────────────
+
+    #[test]
+    fn test_get_max_page_size_returns_shared_cap() {
+        let (_, client, _) = setup();
+        assert_eq!(client.get_max_page_size(), 100);
+    }
+
+    #[test]
+    fn test_get_owner_nfts_paged_zero_limit_returns_empty() {
+        let (env, client, admin) = setup();
+        let owner = Address::generate(&env);
+        mint_nft(&env, &client, &admin, &owner);
+        let page = client.get_owner_nfts_paged(&owner, &0, &0);
+        assert_eq!(page.len(), 0);
+    }
+
+    #[test]
+    fn test_get_owner_nfts_paged_over_limit_is_truncated_to_max_page_size() {
+        let (env, client, admin) = setup();
+        // 120 mints is well past the default test budget.
+        env.budget().reset_unlimited();
+        let owner = Address::generate(&env);
+        for _ in 0..120 {
+            mint_nft(&env, &client, &admin, &owner);
+        }
+        assert_eq!(client.get_owner_nfts(&owner).len(), 120);
+
+        // Unbounded request → capped at the shared page-size limit.
+        let page = client.get_owner_nfts_paged(&owner, &0, &u32::MAX);
+        assert_eq!(page.len(), 100);
+
+        // A mid-list over-limit request stays capped (70 remaining < 100).
+        let tail = client.get_owner_nfts_paged(&owner, &50, &u32::MAX);
+        assert_eq!(tail.len(), 70);
+
+        // Exactly-at-the-limit requests are not truncated.
+        let full = client.get_owner_nfts_paged(&owner, &0, &100);
+        assert_eq!(full.len(), 100);
+    }
+
+    #[test]
+    fn test_get_owner_nfts_paged_walks_the_whole_list() {
+        let (env, client, admin) = setup();
+        let owner = Address::generate(&env);
+        for _ in 0..5 {
+            mint_nft(&env, &client, &admin, &owner);
+        }
+        let mut seen = 0;
+        let mut offset = 0;
+        loop {
+            let page = client.get_owner_nfts_paged(&owner, &offset, &2);
+            if page.len() == 0 {
+                break;
+            }
+            seen += page.len();
+            offset += 2;
+        }
+        assert_eq!(seen, 5);
+        assert_eq!(client.get_owner_nfts_paged(&owner, &0, &5).len(), 5);
+    }
+
     #[test]
     fn test_get_royalty_info_nonexistent_returns_none() {
         let (_, client, _) = setup();
@@ -372,7 +434,7 @@ mod tests {
         let instructor = Address::generate(&env);
         
         // Baseline: single mint instruction count check
-        env.budget().reset();
+        env.budget().reset_default();
         let nft_id = client.mint_course_nft(
             &admin,
             &owner,
@@ -398,7 +460,7 @@ mod tests {
         
         let nft_id = mint_nft(&env, &client, &admin, &owner);
         
-        env.budget().reset();
+        env.budget().reset_default();
         client.transfer_nft(&owner, &new_owner, &nft_id);
         
         let cpu_instructions = env.budget().cpu_instruction_cost();
@@ -412,7 +474,7 @@ mod tests {
         let (env, client, admin) = setup();
         let owner = Address::generate(&env);
         
-        env.budget().reset();
+        env.budget().reset_default();
         // Mint 5 NFTs and measure total instruction cost
         for _ in 0..5 {
             mint_nft(&env, &client, &admin, &owner);
@@ -425,5 +487,63 @@ mod tests {
         
         // Verify all 5 were minted
         assert_eq!(client.get_owner_nfts(&owner).len(), 5);
+    }
+
+    // ── Metadata validation (Issue #1170) ─────────────────────────────────────
+    // The rules live in `brain_storm_shared::validation` and are shared with
+    // `contracts/credential_metadata`.
+
+    fn mint_with_course_name(env: &Env, client: &NftContractClient, admin: &Address, name: &str) {
+        let owner = Address::generate(env);
+        let instructor = Address::generate(env);
+        client.mint_course_nft(
+            admin,
+            &owner,
+            &symbol_short!("RUST101"),
+            &String::from_str(env, name),
+            &instructor,
+            &1000,
+            &500,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Course name must be between 3 and 100 characters")]
+    fn test_mint_rejects_empty_course_name() {
+        let (env, client, admin) = setup();
+        mint_with_course_name(&env, &client, &admin, "");
+    }
+
+    #[test]
+    #[should_panic(expected = "Course name must be between 3 and 100 characters")]
+    fn test_mint_rejects_too_short_course_name() {
+        let (env, client, admin) = setup();
+        mint_with_course_name(&env, &client, &admin, "Ab");
+    }
+
+    #[test]
+    #[should_panic(expected = "Course name must be between 3 and 100 characters")]
+    fn test_mint_rejects_overlong_course_name() {
+        let (env, client, admin) = setup();
+        let overlong = "X".repeat(101);
+        mint_with_course_name(&env, &client, &admin, &overlong);
+    }
+
+    #[test]
+    fn test_mint_accepts_boundary_course_name_and_royalty() {
+        let (env, client, admin) = setup();
+        let owner = Address::generate(&env);
+        let instructor = Address::generate(&env);
+        // Exactly 3 characters and the maximum royalty basis both pass.
+        let nft_id = client.mint_course_nft(
+            &admin,
+            &owner,
+            &symbol_short!("RUST101"),
+            &String::from_str(&env, "Rst"),
+            &instructor,
+            &1000,
+            &10000,
+        );
+        assert_eq!(client.get_royalty_info(&nft_id).unwrap().1, 10000);
     }
 }

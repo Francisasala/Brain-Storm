@@ -10,6 +10,61 @@
     "subject-empty": [2, "never"],
     "subject-full-stop": [2, "never", "."],
     "type-case": [2, "always", "lower-case"],
-    "type-empty": [2, "never"]
+    "type-empty": [2, "never"],
+    "scope-enum": [
+      2,
+      "always",
+      [
+        "",
+
+        "auth",
+        "courses",
+        "users",
+        "stellar",
+        "notifications",
+        "payments",
+        "reputation",
+        "search",
+        "analytics",
+
+        "backend",
+        "frontend",
+        "sdk",
+        "types",
+        "mobile",
+        "api",
+
+        "contracts",
+        "contracts-analytics",
+        "contracts-badges",
+        "contracts-buyback",
+        "contracts-certificate",
+        "contracts-credential-metadata",
+        "contracts-dispute",
+        "contracts-escrow",
+        "contracts-governance",
+        "contracts-grants",
+        "contracts-integration",
+        "contracts-liquidity-pool",
+        "contracts-market",
+        "contracts-nft",
+        "contracts-registry",
+        "contracts-reputation",
+        "contracts-royalty-distribution",
+        "contracts-scholarship-fund",
+        "contracts-shared",
+        "contracts-token",
+        "contracts-token-restrictions",
+
+        "ci",
+        "docker",
+        "infra",
+        "deps",
+        "security",
+        "docs",
+        "release"
+      ]
+    ],
+    "scope-case": [2, "always", "lower-case"]
   }
 }

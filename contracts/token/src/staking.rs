@@ -21,7 +21,7 @@ pub const STAKE_CREATED: Symbol  = symbol_short!("stake");
 pub const STAKE_WITHDRAWN: Symbol = symbol_short!("unstake");
 pub const REWARDS_CLAIMED: Symbol = symbol_short!("reward");
 pub const DELEGATED: Symbol       = symbol_short!("delegate");
-pub const UNDELEGATED: Symbol     = symbol_short!("undelegate");
+pub const UNDELEGATED: Symbol     = symbol_short!("undelegat");
 pub const SLASHED: Symbol         = symbol_short!("slashed");
 
 // ── Storage keys ──────────────────────────────────────────────────────────────

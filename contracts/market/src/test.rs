@@ -33,7 +33,7 @@ fn setup_test_environment(env: &Env) -> (MarketContractClient, Address, Address,
 }
 
 // ============================================
-# Reentrancy Tests
+// Reentrancy Tests
 // ============================================
 
 #[test]
@@ -127,7 +127,7 @@ fn test_lock_status_after_purchase() {
 }
 
 // ============================================
-# Edge Case Tests
+// Edge Case Tests
 // ============================================
 
 #[test]
@@ -237,7 +237,7 @@ fn test_get_purchases_by_buyer() {
 }
 
 // ============================================
-# Malicious Reentrancy Attack Simulation
+// Malicious Reentrancy Attack Simulation
 // ============================================
 
 #[test]

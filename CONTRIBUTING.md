@@ -14,6 +14,23 @@ All contributors are expected to follow our [Code of Conduct](CODE_OF_CONDUCT.md
 4. **Create a new branch** from `main` for your change (see naming conventions below).
 5. Make your changes, add tests, and open a pull request.
 
+## Task Tracking & TODOs
+
+**All actionable items must be tracked as [GitHub Issues](https://github.com/BrainTease/Brain-Storm/issues)**, not in root-level TODO files. This ensures:
+
+- Visibility across the entire team
+- Clear assignment and progress tracking
+- Integration with project boards and milestones
+- Historical record for future reference
+
+**Never commit TODOs or task lists to the root directory.** If you encounter untracked work during development:
+
+1. Create a GitHub issue with a clear title, description, and acceptance criteria
+2. Link it in your PR if it's blocking or related
+3. Add it to the appropriate project board (e.g., "Feature Development", "Bug Fixes")
+
+For multi-step features, break them into smaller issues or create a GitHub project to organize related issues together.
+
 ## Branch Naming Conventions
 
 | Prefix      | When to use                                              |
@@ -53,17 +70,86 @@ We enforce [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/
 | `perf`     | Performance improvement                          |
 | `ci`       | CI/CD configuration changes                      |
 
-### Scope (optional but encouraged)
+### Allowed Scopes
 
-Use the affected module: `auth`, `courses`, `users`, `stellar`, `contracts`, `frontend`, `docs`, etc.
+Scopes are enforced by commitlint. Use the most specific scope that applies. Valid values are:
+
+**Domain scopes** (business logic area):
+
+| Scope           | When to use                                         |
+| --------------- | --------------------------------------------------- |
+| `auth`          | Authentication, authorization, JWT, sessions        |
+| `courses`       | Course management, enrollment, progress             |
+| `users`         | User profiles, settings, roles                      |
+| `stellar`       | Stellar/Soroban blockchain integration              |
+| `notifications` | Email, push, in-app notification system             |
+| `payments`      | Stripe integration, payments, subscriptions         |
+| `reputation`    | Reputation scores, badges, leaderboards             |
+| `search`        | Search indexing, Elasticsearch integration          |
+| `analytics`     | Analytics tracking, reporting, dashboards           |
+
+**Workspace scopes** (monorepo package):
+
+| Scope      | When to use                                    |
+| ---------- | ---------------------------------------------- |
+| `backend`  | `apps/backend` — NestJS REST API               |
+| `frontend` | `apps/frontend` — Next.js web app              |
+| `sdk`      | `packages/sdk` — TypeScript client SDK         |
+| `types`    | `packages/types` — shared TypeScript types     |
+| `mobile`   | `packages/mobile` / `packages/mobile-app`      |
+| `api`      | `packages/api` — API load-testing package      |
+
+**Contract scopes** (Soroban smart contracts):
+
+> Note: commitlint splits scope on `/`, so contract scopes use hyphens — e.g. `contracts-token` maps to `contracts/token/`.
+
+| Scope                               | Contract directory (`contracts/…`)  |
+| ----------------------------------- | ----------------------------------- |
+| `contracts`                         | Cross-contract or workspace-level   |
+| `contracts-analytics`               | `analytics/`                        |
+| `contracts-badges`                  | `badges/`                           |
+| `contracts-buyback`                 | `buyback/`                          |
+| `contracts-certificate`             | `certificate/`                      |
+| `contracts-credential-metadata`     | `credential_metadata/`              |
+| `contracts-dispute`                 | `dispute/`                          |
+| `contracts-escrow`                  | `escrow/`                           |
+| `contracts-governance`              | `governance/`                       |
+| `contracts-grants`                  | `grants/`                           |
+| `contracts-integration`             | `integration/`                      |
+| `contracts-liquidity-pool`          | `liquidity_pool/`                   |
+| `contracts-market`                  | `market/`                           |
+| `contracts-nft`                     | `nft/`                              |
+| `contracts-registry`                | `registry/`                         |
+| `contracts-reputation`              | `reputation/`                       |
+| `contracts-royalty-distribution`    | `royalty_distribution/`             |
+| `contracts-scholarship-fund`        | `scholarship_fund/`                 |
+| `contracts-shared`                  | `shared/`                           |
+| `contracts-token`                   | `token/`                            |
+| `contracts-token-restrictions`      | `token_restrictions/`               |
+
+**Tooling scopes**:
+
+| Scope      | When to use                                         |
+| ---------- | --------------------------------------------------- |
+| `ci`       | GitHub Actions workflows, CI configuration          |
+| `docker`   | Dockerfile, docker-compose files                    |
+| `infra`    | Terraform, Helm, Kubernetes manifests               |
+| `deps`     | Dependency upgrades (npm or Cargo)                  |
+| `security` | Security scanning config, deny.toml, audit fixes    |
+| `docs`     | Documentation only (no code changes)                |
+| `release`  | Release configuration, changelogs, versioning       |
+
+Omitting the scope is allowed for truly cross-cutting changes (e.g. `chore: bump Node.js in CI`).
 
 ### Examples
 
 ```
 feat(auth): add API key authentication for service-to-service calls
 fix(courses): strip HTML from description before saving
-docs(contracts): add end-to-end credential issuance flow
+docs(contracts-certificate): add end-to-end credential issuance flow
 chore(deps): upgrade @stellar/stellar-sdk to v13
+fix(security): patch adm-zip path traversal vulnerability
+feat(contracts-reputation): add weighted scoring algorithm
 ```
 
 Breaking changes must include `BREAKING CHANGE:` in the footer:
@@ -72,6 +158,15 @@ Breaking changes must include `BREAKING CHANGE:` in the footer:
 feat(auth)!: remove legacy /v0 endpoints
 
 BREAKING CHANGE: All clients must migrate to /v1 endpoints.
+```
+
+### Testing commitlint locally
+
+```bash
+# Validate a commit message (exit 0 = valid)
+echo "feat(auth): add OAuth2 support" | npx commitlint
+
+# The husky commit-msg hook runs this automatically on every commit
 ```
 
 ## Pull Request Process
@@ -91,7 +186,7 @@ Before submitting your PR, verify:
 - [ ] Code follows the style guide (`npm run lint` passes).
 - [ ] All existing tests pass (`npm run test`).
 - [ ] New tests are added for new behaviour.
-- [ ] Commits follow Conventional Commits format.
+- [ ] Commits follow Conventional Commits format with an allowed scope.
 - [ ] Documentation is updated if behaviour changes.
 - [ ] No secrets or PII are committed.
 - [ ] PR description clearly explains the _what_ and _why_.
@@ -173,6 +268,105 @@ For a full reference see [`packages/types/src/test-utils/README.md`](packages/ty
 ## Security
 
 If you discover a security vulnerability, **do not open a public issue**. Follow our [Security Policy](SECURITY.md) for responsible disclosure.
+
+## Dependency Security Policy (npm)
+
+We run `npm audit` in CI on every push. The policy is:
+
+- **Critical and high severity** vulnerabilities that have a non-breaking fix available must be patched before merging.
+- Vulnerabilities whose only fix requires a **semver-major upgrade** (breaking change) are tracked as accepted-risk exceptions below, with justification and a planned upgrade milestone.
+- **Moderate and low severity** findings are reviewed quarterly and patched opportunistically.
+
+### npm Audit — Accepted-Risk Exceptions
+
+The following high/critical vulnerabilities cannot be resolved without semver-major breaking upgrades as of the last audit (2026-09-26). Each is accepted for the stated reason and must be revisited on the target date.
+
+| Package | Severity | Vulnerability | Fix requires | Justification | Target |
+| ------- | -------- | ------------- | ------------ | ------------- | ------ |
+| `next` | critical | DoS via Image Optimizer / HTTP request deserialization | `next@16` | Next.js 14→16 is a major migration requiring App Router rewrites. Tracked in separate upgrade ticket. Mitigated by running behind a load balancer that rejects oversized requests. | Q4 2026 |
+| `vitest` / `@vitest/coverage-v8` | critical | Arbitrary file read/execute via Vitest UI server | `vitest@5` | Dev-only dependency. Vitest UI server is never exposed outside developer workstations. Mitigated by never starting `--ui` in CI or production. | Q4 2026 |
+| `@nestjs/platform-express` / `multer` | high | Multer DoS via resource exhaustion | `@nestjs/platform-express@12` | NestJS 10→12 requires testing all decorators and interceptors. Mitigated by global file-size limits (`multipart/form-data` max 10 MB enforced via Nginx). | Q4 2026 |
+| `@nestjs/graphql` / `ws` | high | WebSocket DoS / header count | `@nestjs/graphql@14` | NestJS GraphQL major upgrade; requires schema compatibility review. Mitigated by `helmet` rate-limiting on WebSocket upgrades. | Q4 2026 |
+| `@nestjs/swagger` via `js-yaml` / `lodash` | high | Prototype pollution, code injection in `_.template` | `@nestjs/swagger@12` | Swagger is read-only documentation UI, never used in data-path. `lodash.template` is not called with user-controlled input in this codebase. | Q1 2027 |
+| `@opentelemetry/sdk-node` (incl. `exporter-prometheus`, `propagator-jaeger`) | high | Prometheus exporter DoS / Jaeger header DoS | `@opentelemetry/sdk-node@0.222` | Observability stack upgrade; requires coordinator work with infra team. Prometheus endpoint is not publicly reachable (internal only). Jaeger header parsing only triggered on trusted internal traffic. | Q1 2027 |
+| `@sentry/nextjs` via `rollup` | high | Rollup path traversal during build | `@sentry/nextjs@11` | Build-time only. Rollup path traversal cannot be triggered at runtime. Production builds run in isolated CI containers. | Q1 2027 |
+| `@stellar/stellar-sdk` via `toml` | high | toml-node uncontrolled recursion / prototype pollution | `@stellar/stellar-sdk@17` | SDK v17 changes the Horizon + RPC client API surface significantly. Mitigated by validating all TOML inputs against a known-good schema before parsing. | Q1 2027 |
+| `eslint-config-next` via `glob` | high | glob CLI command injection | `eslint-config-next@16` | Dev-only; `glob` CLI is never invoked in production. Command injection requires an attacker to control glob arguments, which is not possible in our ESLint configuration. | Q4 2026 |
+| `@storybook/nextjs` via `sharp` | high | sharp/libvips CVEs | `@storybook/nextjs@10` | Dev-only; Storybook never runs in production. Image processing done via `sharp` is only for component preview screenshots in developer browsers. | Q1 2027 |
+| `@faker-js/faker` | high | `helpers.fake` arbitrary code execution | `@faker-js/faker@10` | Dev/test only. `helpers.fake()` is not called with user-controlled template strings in our test suite. | Q4 2026 |
+| `postcss` | high | XSS via unescaped `</style>` / sourceMappingURL file read | `next@16` | Build-time only; PostCSS output is sanitized by Next.js before serving. `sourceMappingURL` injection requires write access to input CSS, which is only developer-controlled. | Q4 2026 |
+
+To re-run the audit and update this table:
+
+```bash
+npm audit --json | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+v = d['vulnerabilities']
+hc = {k: x for k, x in v.items() if x.get('severity') in ('high', 'critical')}
+for k, x in hc.items():
+    print(k, x['severity'], x.get('fixAvailable'))
+"
+```
+
+## Rust Crate License Policy
+
+All Rust crates in the Cargo workspace are checked against our license allow-list by [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny) in CI.
+
+### Allowed Licenses
+
+| License | Notes |
+| ------- | ----- |
+| MIT | Standard permissive |
+| Apache-2.0 | Standard permissive |
+| Apache-2.0 OR MIT | Dual-licensed (common in Rust ecosystem) |
+| BSD-2-Clause | Simplified BSD |
+| BSD-3-Clause | Modified BSD |
+| ISC | Functional equivalent to MIT |
+| Unicode-DFS-2016 | Required by `unicode-ident` (Unicode data tables) |
+
+### Prohibited Licenses
+
+| License | Reason |
+| ------- | ------ |
+| GPL-2.0 | Copyleft; incompatible with commercial use |
+| GPL-3.0 | Copyleft; incompatible with commercial use |
+| AGPL-3.0 | Strong copyleft; incompatible with SaaS deployment |
+
+Any crate with an unlicensed or undetectable license is **denied** (`unlicensed = "deny"`).
+
+### Adding a New Dependency
+
+Before adding a Rust crate:
+
+1. Verify its license is in the allow-list above.
+2. Run `cargo deny check licenses` locally (requires `cargo install cargo-deny`).
+3. If the crate uses a license not in the list, open an issue to discuss adding it before merging.
+
+### Running cargo-deny locally
+
+```bash
+# Install (once)
+cargo install cargo-deny
+
+# Check all rules (advisories, licenses, bans, sources)
+cargo deny check
+
+# Check licenses only
+cargo deny check licenses
+
+# Check for known security advisories
+cargo deny check advisories
+```
+
+### cargo-deny Configuration
+
+The deny configuration lives in [`deny.toml`](./deny.toml) at the workspace root. Key settings:
+
+- **advisories**: vulnerability and unmaintained crate warnings sourced from the [RustSec Advisory Database](https://rustsec.org/).
+- **licenses**: allow-list defined above; any crate not matching is denied in CI.
+- **bans**: multiple versions of the same crate produce a warning (not an error) to keep the dependency tree clean.
+- **sources**: only `crates.io` registry is allowed; no unknown git sources.
 
 ## API Versioning
 

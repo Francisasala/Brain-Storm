@@ -31,7 +31,7 @@ pub enum VotingStrategy {
 
 /// Lifecycle state of a proposal.
 #[contracttype]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum ProposalState {
     /// Proposal created, voting has not started yet.
     Pending,

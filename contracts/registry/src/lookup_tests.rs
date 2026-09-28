@@ -15,7 +15,11 @@
 #[cfg(test)]
 mod lookup_tests {
     use crate::{RegistryContract, RegistryContractClient, VerificationLevel};
-    use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env, Vec};
+    use soroban_sdk::{
+        symbol_short,
+        testutils::{Address as _, Ledger},
+        vec, Address, Env, Vec,
+    };
 
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
@@ -118,7 +122,7 @@ mod lookup_tests {
         // expiry=0 means permanent
         client.add_certified_skill(&admin, &user, &skill, &0);
         // Advance ledger to maximum sane timestamp
-        env.ledger().set_timestamp(u64::MAX / 2);
+        env.ledger().with_mut(|l| l.timestamp = u64::MAX / 2);
         let skills = client.get_certified_skills(&user);
         assert_eq!(skills.len(), 1);
         assert_eq!(skills.get(0).unwrap(), skill);
@@ -133,7 +137,7 @@ mod lookup_tests {
         let expiry: u64 = 500;
         client.add_certified_skill(&admin, &user, &skill, &expiry);
         // Set ledger time exactly to expiry value
-        env.ledger().set_timestamp(expiry);
+        env.ledger().with_mut(|l| l.timestamp = expiry);
         assert_eq!(client.get_certified_skills(&user).len(), 0);
     }
 
@@ -144,7 +148,7 @@ mod lookup_tests {
         let skill = symbol_short!("sol");
         let expiry: u64 = 500;
         client.add_certified_skill(&admin, &user, &skill, &expiry);
-        env.ledger().set_timestamp(expiry - 1);
+        env.ledger().with_mut(|l| l.timestamp = expiry - 1);
         let skills = client.get_certified_skills(&user);
         assert_eq!(skills.len(), 1);
     }
@@ -162,7 +166,7 @@ mod lookup_tests {
         client.add_certified_skill(&admin, &user, &permanent_skill, &0);
 
         // Advance past `expired_skill` expiry but well before `valid_skill`
-        env.ledger().set_timestamp(200);
+        env.ledger().with_mut(|l| l.timestamp = 200);
 
         let skills = client.get_certified_skills(&user);
         assert_eq!(skills.len(), 2, "expected valid + permanent, got {}", skills.len());
@@ -176,7 +180,7 @@ mod lookup_tests {
         let user = Address::generate(&env);
         client.add_certified_skill(&admin, &user, &symbol_short!("a"), &10);
         client.add_certified_skill(&admin, &user, &symbol_short!("b"), &20);
-        env.ledger().set_timestamp(100);
+        env.ledger().with_mut(|l| l.timestamp = 100);
         assert_eq!(client.get_certified_skills(&user).len(), 0);
     }
 
@@ -220,7 +224,7 @@ mod lookup_tests {
         let user = Address::generate(&env);
         let skill = symbol_short!("rust");
         client.add_certified_skill(&admin, &user, &skill, &50);
-        env.ledger().set_timestamp(100);
+        env.ledger().with_mut(|l| l.timestamp = 100);
         assert!(!client.has_certified_skill(&user, &skill));
     }
 
@@ -335,6 +339,54 @@ mod lookup_tests {
         let user = Address::generate(&env);
         client.register_user(&user);
         let page = client.list_users(&0, &0);
+        assert_eq!(page.len(), 0);
+    }
+
+    // ── Page-size cap (#1168) ─────────────────────────────────────────────────
+
+    #[test]
+    fn lookup_get_max_page_size_returns_cap() {
+        let (_, client, _) = setup();
+        assert_eq!(client.get_max_page_size(), 100);
+    }
+
+    #[test]
+    fn lookup_list_users_over_limit_is_truncated_to_max_page_size() {
+        let (env, client, _) = setup();
+        for _ in 0..150 {
+            client.register_user(&Address::generate(&env));
+        }
+        assert_eq!(client.total_users(), 150);
+
+        // Unbounded request → capped at the shared page-size limit.
+        let page = client.list_users(&0, &u32::MAX);
+        assert_eq!(page.len(), 100);
+
+        // A request just above the cap is truncated to it, not rejected.
+        let page = client.list_users(&0, &120);
+        assert_eq!(page.len(), 100);
+
+        // Walking on still returns the remainder, also capped.
+        let tail = client.list_users(&100, &u32::MAX);
+        assert_eq!(tail.len(), 50);
+    }
+
+    #[test]
+    fn lookup_list_users_by_level_over_limit_is_truncated_to_max_page_size() {
+        let (env, client, _) = setup();
+        for _ in 0..150 {
+            client.register_user(&Address::generate(&env));
+        }
+        let page = client.list_users_by_level(&VerificationLevel::Unverified, &0, &u32::MAX);
+        assert_eq!(page.len(), 100);
+    }
+
+    #[test]
+    fn lookup_list_users_by_level_zero_limit_returns_empty() {
+        let (env, client, _) = setup();
+        let user = Address::generate(&env);
+        client.register_user(&user);
+        let page = client.list_users_by_level(&VerificationLevel::Unverified, &0, &0);
         assert_eq!(page.len(), 0);
     }
 

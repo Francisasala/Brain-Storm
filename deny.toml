@@ -1,63 +1,115 @@
+# cargo-deny configuration
+# See: https://embarkstudios.github.io/cargo-deny/
+#
+# Run locally:  cargo deny check
+# CI enforces:  cargo deny check (see .github/workflows/contracts.yml)
+
 [advisories]
-# The lint level for crates which do not have a detectable license
-unlicensed = "deny"
-# The lint level used when no other predicates are matched
-default = "warn"
-# The confidence threshold for advisories, any advisory with a confidence
-# lower than this will be ignored
+# Fetch advisories from the RustSec Advisory Database.
+# https://github.com/rustsec/advisory-db
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Deny crates with known security vulnerabilities
 vulnerability = "deny"
+# Warn on unmaintained crates (informational; does not block CI)
 unmaintained = "warn"
+# Warn on crates with security notices (non-vulnerability advisories)
 notice = "warn"
-# A list of advisory IDs to ignore. Note that ignored advisories will still
-# output a note when they are encountered.
+# Warn on yanked crate versions
+yanked = "warn"
+# Ignore advisories below this CVSS score threshold (0.0 = report all)
+severity-threshold = 0.0
+
+# Advisory IDs to ignore (add with justification comment)
+# Example:
+# ignore = [
+#   { id = "RUSTSEC-0000-0000", reason = "Affects API we do not use" }
+# ]
 ignore = []
 
 [licenses]
-# The lint level for crates which do not have a detectable license
+# Deny crates with no detectable license
 unlicensed = "deny"
-# List of explicitly allowed licenses
+
+# Explicitly allowed licenses — must match the policy in CONTRIBUTING.md
 allow = [
     "MIT",
     "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
     "Apache-2.0 OR MIT",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
     "Unicode-DFS-2016",
+    # Unicode-3.0 appears in some unicode-ident releases
+    "Unicode-3.0",
+    # OpenSSL is present as a transitive dep of some Stellar tooling (build only)
+    "OpenSSL",
+    # Zlib is used by miniz_oxide (compression in wasm toolchain)
+    "Zlib",
+    # CC0 public domain dedication (used by some cryptography crates for test vectors)
+    "CC0-1.0",
 ]
-# List of explicitly disallowed licenses
-deny = ["GPL-2.0", "GPL-3.0", "AGPL-3.0"]
-# Lint level for licenses considered copyleft
+
+# Explicitly denied licenses
+deny = ["GPL-2.0", "GPL-3.0", "AGPL-3.0", "LGPL-2.0", "LGPL-2.1", "LGPL-3.0"]
+
+# Emit a warning rather than error for copyleft licenses not in deny list
 copyleft = "warn"
-# Blanket approval or denial for OSI-approved or FSF Free/Libre licenses
-allow-osi-fsf-free = "both"
-# Lint level used when no other predicates are matched
+
+# Allow OSI-approved and FSF Free/Libre licenses that are in the allow list
+allow-osi-fsf-free = "neither"
+
+# Default for any license not matched by the rules above
 default = "deny"
-# The confidence threshold for detecting a license from license text.
+
+# Minimum confidence threshold for license detection from file text
 confidence-threshold = 0.8
 
+# Per-crate license exceptions (use sparingly with a comment)
+exceptions = []
+
 [bans]
-# Lint level for when multiple versions of the same crate are detected
+# Warn (not deny) when multiple versions of the same crate are resolved.
+# This keeps the dependency tree clean without blocking development.
 multiple-versions = "warn"
-# Lint level for when an unmaintained crate is detected
-unmaintained = "warn"
-# Lint level for when a crate with security notices is detected
-notice = "warn"
-# A list of explicitly allowed duplicate crates
-allow = []
-# A list of explicitly disallowed duplicate crates
+
+# Deny specific crates outright (none currently)
 deny = []
-# Certain crates/versions that will be skipped when doing duplicate detection.
-skip = []
-# Similarly named crates that are allowed to coexist
+
+# Allow specific duplicate crate versions when they cannot be avoided
+# Example:
+# skip = [
+#   { name = "bitflags", version = "1" },  # legacy dep from soroban-sdk
+# ]
+skip = [
+    # base64 0.13 and 0.22 coexist because soroban-sdk and its transitive deps
+    # have not yet unified on a single major version.
+    { name = "base64", version = "0.13" },
+    # darling 0.13/0.14 coexist from different macro crates; expected to resolve
+    # once all soroban-sdk macros are updated.
+    { name = "darling", version = "0.14" },
+    { name = "darling_core", version = "0.14" },
+    { name = "darling_macro", version = "0.14" },
+    # indexmap 1.x is a transitive dep of some older crates; 2.x is current.
+    { name = "indexmap", version = "1" },
+]
+
+# Allow sub-trees anchored at specific crates to have duplicate versions
+# without generating individual skip entries for every transitive dep.
 skip-tree = []
 
 [sources]
-# Lint level for what to happen when a crate from a crate registry that is not in the allow list is detected
-unknown-registry = "warn"
-# Lint level for what to happen when a crate from a git repository that is not in the allow list is detected
-unknown-git = "warn"
-# List of allowed crate registries
+# Only allow crates from the official crates.io registry
+unknown-registry = "deny"
+# Deny crates from unknown git repositories
+unknown-git = "deny"
+
+# Registries considered trusted
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# List of allowed Git repositories
+
+# Git repositories considered trusted (add with justification)
+# Example:
+# allow-git = ["https://github.com/stellar/rs-soroban-sdk"]
 allow-git = []

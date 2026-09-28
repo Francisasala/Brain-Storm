@@ -12,26 +12,53 @@
 //! let page = paginate(&env, &my_vec, offset, limit);
 //! ```
 //!
+//! # Page-size cap (Issue #1168)
+//!
+//! Callers may ask for an unbounded number of items, which would exceed the
+//! contract resource limits. `paginate` therefore clamps every request to
+//! [`MAX_PAGE_SIZE`] centrally, so every consumer of this helper is capped
+//! without having to remember to do it itself.
+//!
 //! # Edge cases handled
 //!
 //! | Scenario | Behaviour |
 //! |---|---|
 //! | `offset` ≥ `total` | Returns empty `Vec` |
 //! | `offset + limit` > `total` | Clamps to `total` (partial page) |
+//! | `limit` > `MAX_PAGE_SIZE` | Truncated to `MAX_PAGE_SIZE` (Issue #1168) |
 //! | `limit == 0` | Returns empty `Vec` |
 //! | Empty source `Vec` | Returns empty `Vec` |
 
 use soroban_sdk::{Env, Vec};
 
+/// Maximum number of items a single page may contain (Issue #1168).
+///
+/// This is the workspace-wide page-size cap: callers cannot request more than
+/// `MAX_PAGE_SIZE` items in one call, no matter what `limit` they pass.
+/// [`paginate`] enforces it through [`clamp_page_size`].
+pub const MAX_PAGE_SIZE: u32 = 100;
+
+/// Clamp a requested page size to [`MAX_PAGE_SIZE`].
+///
+/// Over-limit requests are *truncated* rather than rejected, so existing
+/// callers keep working while still being bounded (Issue #1168).
+pub fn clamp_page_size(limit: u32) -> u32 {
+    limit.min(MAX_PAGE_SIZE)
+}
+
 /// Return a page of items from `list` starting at `offset` with at most `limit` items.
 ///
-/// All four cursor-boundary cases are handled safely (see module-level docs).
+/// All four cursor-boundary cases are handled safely (see module-level docs),
+/// and `limit` is capped at [`MAX_PAGE_SIZE`] before slicing (Issue #1168).
 pub fn paginate<T: soroban_sdk::TryFromVal<Env, soroban_sdk::Val> + soroban_sdk::IntoVal<Env, soroban_sdk::Val> + Clone>(
     env: &Env,
     list: &Vec<T>,
     offset: u32,
     limit: u32,
 ) -> Vec<T> {
+    // Central page-size enforcement (#1168): no caller can ask for more than
+    // MAX_PAGE_SIZE items in a single page.
+    let limit = clamp_page_size(limit);
     let total = list.len();
     let start = offset.min(total);
     let end = (offset.checked_add(limit).unwrap_or(total)).min(total);
@@ -79,6 +106,63 @@ mod tests {
         let env = Env::default();
         let list = make_list(&env, 5);
         let page = paginate(&env, &list, 0, 0);
+        assert_eq!(page.len(), 0);
+    }
+
+    // ── page-size cap (#1168) ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_clamp_page_size_caps_at_max_page_size() {
+        assert_eq!(clamp_page_size(0), 0);
+        assert_eq!(clamp_page_size(MAX_PAGE_SIZE), MAX_PAGE_SIZE);
+        assert_eq!(clamp_page_size(MAX_PAGE_SIZE + 1), MAX_PAGE_SIZE);
+        assert_eq!(clamp_page_size(u32::MAX), MAX_PAGE_SIZE);
+    }
+
+    #[test]
+    fn test_paginate_over_limit_is_truncated_to_max_page_size() {
+        let env = Env::default();
+        let list = make_list(&env, 500);
+        // Unbounded request — the classic resource-limit attack.
+        let page = paginate(&env, &list, 0, u32::MAX);
+        assert_eq!(page.len(), MAX_PAGE_SIZE);
+        assert_eq!(page.get(0).unwrap(), 0_u32);
+        assert_eq!(page.get(MAX_PAGE_SIZE - 1).unwrap(), MAX_PAGE_SIZE - 1);
+    }
+
+    #[test]
+    fn test_paginate_exactly_max_page_size_is_not_truncated() {
+        let env = Env::default();
+        let list = make_list(&env, 150);
+        let page = paginate(&env, &list, 0, MAX_PAGE_SIZE);
+        assert_eq!(page.len(), MAX_PAGE_SIZE);
+    }
+
+    #[test]
+    fn test_paginate_over_limit_on_small_list_clamps_to_available() {
+        let env = Env::default();
+        let list = make_list(&env, 5);
+        let page = paginate(&env, &list, 0, 10_000);
+        assert_eq!(page.len(), 5);
+    }
+
+    #[test]
+    fn test_paginate_over_limit_mid_list_stays_capped() {
+        let env = Env::default();
+        let list = make_list(&env, 500);
+        // offset 500 is past the end → empty regardless of the (capped) limit.
+        let page = paginate(&env, &list, 500, u32::MAX);
+        assert_eq!(page.len(), 0);
+        // A page starting at 50 still returns at most MAX_PAGE_SIZE items.
+        let page = paginate(&env, &list, 50, u32::MAX);
+        assert_eq!(page.len(), MAX_PAGE_SIZE);
+    }
+
+    #[test]
+    fn test_paginate_zero_limit_with_over_long_offset_returns_empty() {
+        let env = Env::default();
+        let list = make_list(&env, 5);
+        let page = paginate(&env, &list, 3, 0);
         assert_eq!(page.len(), 0);
     }
 

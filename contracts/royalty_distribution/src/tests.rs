@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::{RoyaltyDistributionContract, RoyaltyDistributionContractClient};
-    use soroban_sdk::{testutils::Address as _, Address, Env};
+    use soroban_sdk::{testutils::{Address as _, Events}, Address, Env, FromVal};
 
     fn setup() -> (Env, RoyaltyDistributionContractClient<'static>, Address) {
         let env = Env::default();
@@ -243,7 +243,7 @@ mod tests {
         let newest = events.get(events.len() - 1).unwrap();
         let topics = newest.1;
         assert_eq!(soroban_sdk::Symbol::from_val(&env, &topics.get(0).unwrap()), soroban_sdk::symbol_short!("royalty"));
-        assert_eq!(soroban_sdk::Symbol::from_val(&env, &topics.get(1).unwrap()), soroban_sdk::symbol_short!("distributed"));
+        assert_eq!(soroban_sdk::Symbol::from_val(&env, &topics.get(1).unwrap()), soroban_sdk::symbol_short!("distribtd"));
     }
 
     #[test]

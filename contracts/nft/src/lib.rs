@@ -1,9 +1,15 @@
 #![no_std]
+// Test builds need std (panic::catch_unwind, println!); runtime stays no_std.
+#[cfg(test)]
+#[macro_use]
+extern crate std;
+
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec,
 };
 
-use brain_storm_shared::access;
+use brain_storm_shared::pagination::{paginate, MAX_PAGE_SIZE};
+use brain_storm_shared::{access, validation};
 
 #[contracttype]
 pub enum DataKey {
@@ -80,7 +86,9 @@ impl NftContract {
         royalty_basis: u32,
     ) -> u32 {
         access::require_admin(&env, &admin, &DataKey::Admin);
-        assert!(royalty_basis <= 10000, "Royalty basis must be <= 10000");
+        // Shared metadata rules (#1170) — same helpers credential_metadata uses.
+        validation::require_valid_course_name(&course_name);
+        validation::require_valid_royalty_basis(royalty_basis);
 
         // OPTIMIZATION: Cache NextNftId read (issue #1001)
         let nft_id_key = DataKey::NextNftId;
@@ -250,6 +258,27 @@ impl NftContract {
             .instance()
             .get(&DataKey::CourseNfts(owner))
             .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Largest page `get_owner_nfts_paged` will ever return (Issue #1168).
+    ///
+    /// Surfaced so clients can pick a `limit` that will not be truncated.
+    pub fn get_max_page_size() -> u32 {
+        MAX_PAGE_SIZE
+    }
+
+    /// Paged view of [`Self::get_owner_nfts`] (Issue #1168).
+    ///
+    /// `limit` is capped at [`MAX_PAGE_SIZE`] by the shared pagination helper,
+    /// so an over-limit request returns at most `MAX_PAGE_SIZE` items and a
+    /// `limit` of 0 returns an empty page.
+    pub fn get_owner_nfts_paged(env: Env, owner: Address, offset: u32, limit: u32) -> Vec<u32> {
+        let all: Vec<u32> = env
+            .storage()
+            .instance()
+            .get(&DataKey::CourseNfts(owner))
+            .unwrap_or_else(|| Vec::new(&env));
+        paginate(&env, &all, offset, limit)
     }
 
     pub fn get_royalty_info(env: Env, nft_id: u32) -> Option<(Address, u32)> {

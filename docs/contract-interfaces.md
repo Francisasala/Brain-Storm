@@ -239,7 +239,7 @@ On-chain proposal voting and contract upgrade governance.
 | `has_voted(proposal_id, voter)`                             | —        | Check if address voted                            |
 | `propose_upgrade(proposer, new_wasm_hash, description)`     | proposer | Propose contract upgrade                          |
 | `vote_upgrade(voter, upgrade_id, support)`                  | voter    | Vote on upgrade proposal                          |
-| `approve_upgrade(upgrade_id)`                               | admin    | Admin approval gate                               |
+| `approve_upgrade(admin, upgrade_id)`                         | admin    | Admin approval gate                               |
 | `execute_upgrade(upgrade_id)`                               | —        | Execute approved upgrade                          |
 | `get_upgrade_proposal(upgrade_id)`                          | —        | Read upgrade proposal                             |
 
@@ -718,7 +718,7 @@ Brain-Storm contracts use Soroban's built-in `update_current_contract_wasm` mech
 1. **Build new WASM** — run `./scripts/build.sh` and note the new hash.
 2. **Submit upgrade proposal** — call `propose_upgrade(proposer, new_wasm_hash, description)` on the Governance contract.
 3. **Community voting** — token holders call `vote_upgrade(voter, upgrade_id, support)` during the voting window.
-4. **Admin approval** — admin calls `approve_upgrade(upgrade_id)` if quorum is reached.
+4. **Admin approval** — admin calls `approve_upgrade(admin, upgrade_id)` if quorum is reached.
 5. **Execute upgrade** — anyone calls `execute_upgrade(upgrade_id)`; the on-chain WASM is atomically replaced.
 6. **Verify** — run `stellar contract info --id <CONTRACT_ID> --network testnet` to confirm the new hash.
 

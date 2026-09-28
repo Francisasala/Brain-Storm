@@ -123,6 +123,16 @@ fn test_double_initialize_rejected() {
     client.initialize(&admin);
 }
 
+#[test]
+#[should_panic(expected = "Already initialized")]
+fn test_reinitialization_cannot_replace_admin() {
+    // Security (#1169): the admin slot gates every upgrade, so a later
+    // `initialize` call — by anyone — must not be able to take it over.
+    let (env, _, client) = setup();
+    let attacker = Address::generate(&env);
+    client.initialize(&attacker);
+}
+
 // ── assign_role: only admin ───────────────────────────────────────────────────
 
 #[test]
@@ -256,7 +266,8 @@ fn test_non_admin_cannot_cancel_upgrade() {
     use soroban_sdk::BytesN;
     let (env, admin, client) = setup();
     // Schedule a real upgrade so the cancel path is reachable
-    let hash = BytesN::from_array(&env, &[0u8; 32]);
+    // (non-zero hash: schedule_upgrade rejects the all-zero hash, issue #1169)
+    let hash = BytesN::from_array(&env, &[0xAAu8; 32]);
     client.schedule_upgrade(&admin, &hash, &100);
     // Now try to cancel as a non-admin — should panic
     let rando = Address::generate(&env);

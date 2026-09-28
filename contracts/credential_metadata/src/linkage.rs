@@ -215,9 +215,9 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let admin = Address::generate(&env);
-        let result = std::panic::catch_unwind(|| {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             unlink(&env, &admin, 1);
-        });
+        }));
         assert!(result.is_err());
     }
 }
